@@ -2,6 +2,7 @@
 
 A Python project that uses Ollama with the TinyLlama model to classify financial news articles into categories. The system processes news articles and classifies them into categories like oil and gas, agriculture, banking, cryptocurrency, etc.
 
+[X] Author: Mohammed Arif
 ## Requirements
 
 - Python 3.8+
