@@ -1,66 +1,95 @@
 # Financial News Classifier
 
-A Python project that uses Ollama with the TinyLlama model to classify financial news articles into categories. The system processes news articles and classifies them into categories like oil and gas, agriculture, banking, cryptocurrency, etc.
+A Python project that uses Ollama with the TinyLlama model to classify financial news articles into predefined categories. The system processes news articles from CSV files and classifies them into categories like oil and gas, agriculture, banking, cryptocurrency, etc.
 
 [X] Author: Mohammed Arif
+
+## Table of Contents
+1. [Requirements](#requirements)
+2. [Setup](#setup)
+3. [Project Structure](#project-structure)
+4. [Detailed Implementation](#detailed-implementation)
+   - [models.py](#modelspy---data-structures)
+   - [config.py](#configpy---configuration-management)
+   - [classifier.py](#classifierpy---core-classification-logic)
+   - [processor.py](#processorpy---batch-processing)
+5. [Usage](#usage)
+6. [Error Handling](#error-handling)
+7. [Best Practices](#best-practices)
+8. [Contributing](#contributing)
+9. [License](#license)
+
 ## Requirements
 
 - Python 3.8+
 - Ollama installed and running
 - TinyLlama model pulled in Ollama
+- Required Python packages:
+  ```
+  pandas>=1.3.0
+  pydantic>=2.0.0
+  requests>=2.25.0
+  tqdm>=4.65.0
+  python-dotenv>=0.19.0
+  ```
 
 ## Setup
 
-1. Clone the repository
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/yourusername/financial-news-classifier.git
+   cd financial-news-classifier
+   ```
+
 2. Create a virtual environment:
    ```bash
    python -m venv venv
    source venv/bin/activate  # On Windows: venv\Scripts\activate
    ```
+
 3. Install requirements:
    ```bash
    pip install -r requirements.txt
    ```
-4. Make sure Ollama is running:
+
+4. Start Ollama server:
    ```bash
    ollama serve
    ```
+
 5. Pull the TinyLlama model:
    ```bash
    ollama pull tinyllama
    ```
 
-## Usage
-
-Run the main script:
-```bash
-python main.py
-```
-
-The script will:
-1. Process sample articles
-2. Save results to the data directory
-3. Print classification results
-4. Save logs to the logs directory
+6. Create necessary directories:
+   ```bash
+   mkdir -p data logs
+   ```
 
 ## Project Structure
 
-- `src/`: Source code
-  - `classifier.py`: Main classification logic
-  - `processor.py`: Batch processing functionality
-  - `config.py`: Configuration settings
-  - `models.py`: Data models
-- `tests/`: Test files
-- `data/`: Input/output data
-- `logs/`: Log files
+```
+financial_news_classifier/
+├── data/                  # Directory for input/output CSV files
+│   ├── news_articles.csv  # Input news articles
+│   └── processed_*.csv    # Processed output files
+├── logs/                  # Log files directory
+├── tests/                 # Test files
+├── requirements.txt       # Project dependencies
+└── src/
+    ├── __init__.py
+    ├── config.py         # Configuration settings
+    ├── models.py         # Data models and enums
+    ├── classifier.py     # Core classification logic
+    └── processor.py      # CSV processing logic
+```
 
-## Detailed Code Documentation
+## Detailed Implementation
 
-### models.py
+### models.py - Data Structures
 
-The models module defines the core data structures used throughout the application.
-
-#### NewsCategory
+Defines the core data structures using Pydantic and Enums.
 
 ```python
 class NewsCategory(str, Enum):
@@ -73,13 +102,7 @@ class NewsCategory(str, Enum):
     FOREX = "forex"
     COMMODITIES = "commodities"
     OTHERS = "others"
-```
 
-This enum defines all possible categories for news classification. Using an enum ensures type safety and prevents invalid categories.
-
-#### NewsClassification
-
-```python
 class NewsClassification(BaseModel):
     category: NewsCategory
     success: bool
@@ -87,15 +110,15 @@ class NewsClassification(BaseModel):
     processing_time: Optional[float] = None
 ```
 
-A Pydantic model that represents the classification result, including:
-- The assigned category
-- Success status
-- Raw model response
-- Processing time
+Key Features:
+- String-based enumeration for categories
+- Pydantic model for validation
+- Optional fields for metadata
+- Type safety and validation
 
-### config.py
+### config.py - Configuration Management
 
-Configuration management using Pydantic for type safety and validation.
+Centralized configuration using Pydantic BaseModel.
 
 ```python
 class Config(BaseModel):
@@ -113,124 +136,229 @@ class Config(BaseModel):
     TEMPERATURE: float = 0.1
     TOP_P: float = 0.9
     
-    # CSV settings and paths
+    # CSV settings
     CSV_INPUT_COLUMNS: list = ["Headline", "Date", "Article"]
     CSV_DATE_FORMAT: str = "%Y-%m-%d"
+    
+    # Paths
     BASE_DIR: Path = Path(__file__).parent.parent
     DATA_DIR: Path = BASE_DIR / "data"
     LOG_DIR: Path = BASE_DIR / "logs"
 ```
 
-Key configurations include:
-- Ollama API settings
-- Request handling parameters
-- Model configuration
-- File paths and formats
+Features:
+- Environment variable support
+- Type validation
+- Automatic directory creation
+- Configurable API parameters
 
-### classifier.py
+### classifier.py - Core Classification Logic
 
-The core classification logic that interacts with the Ollama API.
+Handles interaction with Ollama API and text classification.
 
 #### Key Components:
 
-1. Initialization and Connection Verification
+1. **Initialization and Connection Verification**:
 ```python
-def __init__(self):
-    self.api_url = config.OLLAMA_URL
-    self.model_name = config.MODEL_NAME
-    self._verify_ollama_connection()
+class FinancialNewsClassifier:
+    def __init__(self):
+        self.api_url = config.OLLAMA_URL
+        self.model_name = config.MODEL_NAME
+        self._verify_ollama_connection()
 ```
+- Verifies Ollama availability
+- Configures API endpoint
+- Initializes connection
 
-2. Prompt Generation
+2. **Prompt Engineering**:
 ```python
 def _generate_prompt(self, text: str) -> str:
-    """Generate a structured prompt for the model"""
-    categories = [f"{i+1}. {cat.value}" for i, cat in enumerate(NewsCategory)]
-    # Returns formatted prompt with categories and instructions
+    """Generate structured classification prompt"""
+    categories = [f"{i+1}. {cat.value}" 
+                 for i, cat in enumerate(NewsCategory)]
+    # Returns formatted prompt with instructions
 ```
+- Creates numbered category list
+- Clear classification instructions
+- Structured format for consistency
 
-3. Category Normalization
+3. **Category Normalization**:
 ```python
 def _normalize_category(self, response: str) -> str:
-    """Normalize model response to standard categories"""
-    # Handles numerical and text-based responses
-    # Maps common terms to categories
-    # Includes fallback mechanisms
+    """Normalize model response to standard category"""
+    # Multiple normalization strategies:
+    # 1. Number extraction
+    # 2. Text matching
+    # 3. Keyword mapping
+    # 4. Fallback handling
 ```
 
-4. API Interaction
+4. **API Interaction**:
 ```python
 def _call_ollama(self, news_text: str) -> Optional[Dict[str, Any]]:
-    """Handle API calls with retry logic"""
-    # Implements retry mechanism with exponential backoff
+    """Call Ollama API with retry logic"""
+    # Implements retry mechanism
     # Handles timeouts and errors
     # Returns processed response
 ```
 
-### processor.py
+5. **Classification Pipeline**:
+```python
+def classify_news(self, news_text: str) -> NewsClassification:
+    """Classify a financial news article"""
+    # 1. Input validation
+    # 2. API call
+    # 3. Response processing
+    # 4. Result formatting
+```
 
-Handles batch processing of news articles from CSV files.
+Features:
+- Robust error handling
+- Retry mechanisms
+- Response validation
+- Performance tracking
 
-#### Key Features:
+### processor.py - Batch Processing
 
-1. CSV Validation
+Handles batch processing of news articles with progress tracking.
+
+#### Key Components:
+
+1. **CSV Validation**:
 ```python
 def validate_csv(self, df: pd.DataFrame) -> bool:
     """Validate CSV structure"""
     required_columns = set(config.CSV_INPUT_COLUMNS)
-    # Checks for required columns
+    current_columns = set(df.columns)
+    return required_columns.issubset(current_columns)
 ```
 
-2. DataFrame Processing
+2. **DataFrame Processing**:
 ```python
 def process_dataframe(self, df: pd.DataFrame) -> pd.DataFrame:
-    """Process articles in batches"""
-    # Includes progress tracking
-    # Handles individual article failures
-    # Implements rate limiting
+    """Process articles in DataFrame"""
+    # Progress tracking
+    # Article processing
+    # Error handling
+    # Rate limiting
 ```
 
-3. Statistics Logging
+3. **File Processing**:
+```python
+def process_csv_file(self, input_file: Optional[Path] = None,
+                    output_file: Optional[Path] = None) -> bool:
+    """Process CSV file with news articles"""
+    # File handling
+    # CSV validation
+    # Article processing
+    # Results saving
+```
+
+4. **Statistics Generation**:
 ```python
 def _log_statistics(self, df: pd.DataFrame):
-    """Log processing statistics"""
-    # Calculates success rates
-    # Logs category distribution
-    # Provides processing summary
+    """Generate processing statistics"""
+    # Success rates
+    # Category distribution
+    # Error analysis
+```
+
+Features:
+- Progress tracking with tqdm
+- Comprehensive error handling
+- Statistical analysis
+- Rate limiting
+- Detailed logging
+
+## Usage
+
+1. Basic usage:
+```python
+from src.processor import NewsProcessor
+
+# Initialize processor
+processor = NewsProcessor()
+
+# Process CSV file
+success = processor.process_csv_file()
+```
+
+2. Custom file paths:
+```python
+from pathlib import Path
+
+input_path = Path("data/custom_input.csv")
+output_path = Path("data/custom_output.csv")
+
+processor.process_csv_file(input_path, output_path)
+```
+
+3. Monitor progress:
+```python
+# Processing will show a progress bar:
+Processing articles: 100%|██████████| 1000/1000 [00:30<00:00, 33.33 articles/s]
 ```
 
 ## Error Handling
 
-The system implements comprehensive error handling:
-
-1. API Connection:
+1. **API Connection**:
    - Connection timeouts
    - Service unavailability
    - Response validation
+   - Retry mechanisms
 
-2. Data Processing:
+2. **Data Processing**:
    - Invalid CSV format
-   - Missing/malformed articles
-   - Category normalization errors
+   - Missing columns
+   - Malformed articles
+   - Category parsing errors
 
-3. Resource Management:
-   - Memory usage monitoring
-   - Processing time tracking
-   - API rate limiting
+3. **Resource Management**:
+   - Memory monitoring
+   - Processing timeouts
+   - Rate limiting
 
 ## Best Practices
 
-1. Logging:
-   - Structured logging throughout
-   - Processing metrics tracking
-   - Error pattern monitoring
+1. **Logging**:
+   - Structured logging
+   - Error tracking
+   - Performance monitoring
+   - Statistics collection
 
-2. Configuration:
-   - Environment variable support
+2. **Configuration**:
+   - Environment variables
    - Type validation
-   - Documented settings
+   - Centralized settings
+   - Documentation
 
-3. Error Recovery:
-   - Retry mechanisms
+3. **Error Recovery**:
+   - Automatic retries
    - Progress preservation
    - Detailed error reporting
+   - Fallback mechanisms
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch:
+   ```bash
+   git checkout -b feature/your-feature-name
+   ```
+3. Commit your changes:
+   ```bash
+   git commit -m "Add your feature description"
+   ```
+4. Push to the branch:
+   ```bash
+   git push origin feature/your-feature-name
+   ```
+5. Create a Pull Request
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+---
+
+For more information or support, please open an issue in the GitHub repository.
