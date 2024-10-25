@@ -1,3 +1,4 @@
+# models.py
 from enum import Enum
 from typing import List, Optional
 from pydantic import BaseModel, Field
@@ -11,10 +12,16 @@ class NewsCategory(str, Enum):
     CRYPTOCURRENCY = "cryptocurrency"
     FOREX = "forex"
     COMMODITIES = "commodities"
-    OTHERS = "others"  # Added new category
+    OTHERS = "others"
 
-class NewsClassification(BaseModel):
+class SentimentType(str, Enum):
+    POSITIVE = "positive"
+    NEGATIVE = "negative"
+    NEUTRAL = "neutral"
+
+class NewsAnalysis(BaseModel):
     category: NewsCategory
+    sentiment: SentimentType
     success: bool
     raw_response: Optional[str] = None
     processing_time: Optional[float] = None

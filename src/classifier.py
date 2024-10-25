@@ -1,10 +1,11 @@
+# classifier.py
 import logging
 import time
 from typing import Optional, Dict, Any
 import requests
 
 from .config import config
-from .models import NewsCategory, NewsClassification
+from .models import NewsCategory, SentimentType, NewsAnalysis
 
 logger = logging.getLogger(__name__)
 
@@ -30,12 +31,12 @@ class FinancialNewsClassifier:
             logger.info("Successfully connected to Ollama")
         except Exception as e:
             raise OllamaConnectionError(
-                "Could not connect to Ollama. Please ensure Ollama is running with 'ollama serve'. "
+                "Could not connect to Ollama. Please ensure Ollama is running. "
                 f"Error: {str(e)}"
             )
 
-    def _generate_prompt(self, text: str) -> str:
-        """Generate a more structured and constrained prompt"""
+    def _generate_classification_prompt(self, text: str) -> str:
+        """Generate a prompt for category classification"""
         categories = [
             f"{i+1}. {cat.value}" 
             for i, cat in enumerate(NewsCategory)
@@ -57,31 +58,41 @@ Article:
 
 Category number:"""
 
+    def _generate_sentiment_prompt(self, text: str) -> str:
+        """Generate a prompt for sentiment analysis"""
+        return f"""Analyze the sentiment of this financial news article. Choose ONE:
+1. positive (indicates growth, profit, success, or positive market outlook)
+2. negative (indicates decline, loss, failure, or negative market outlook)
+3. neutral (balanced or purely factual information)
+
+Rules:
+1. Consider the overall financial impact and market implications
+2. Respond ONLY with the number (1-3)
+3. Don't explain your choice
+
+Article:
+{text}
+
+Sentiment number:"""
+
     def _normalize_category(self, response: str) -> str:
-        """Improved category normalization"""
+        """Normalize category response"""
         try:
-            # First try to extract just numbers from response
+            # First try to extract numbers
             import re
             numbers = re.findall(r'\d+', response)
             if numbers:
-                # Take the first number found
                 number = int(numbers[0])
-                # Map numbers to categories (1-based index)
                 categories = list(NewsCategory)
                 if 1 <= number <= len(categories):
                     return categories[number-1].value
 
-            # If number parsing fails, try text matching
+            # Text-based matching fallback
             response = response.lower().strip()
             response = ''.join(c for c in response if c.isalnum() or c in ['_', ' '])
             response = response.replace(' ', '_')
 
-            # Direct match with category values
-            valid_categories = [c.value for c in NewsCategory]
-            if response in valid_categories:
-                return response
-
-            # Category mapping for common terms
+            # Category mapping
             category_mapping = {
                 'stock': 'stock_market',
                 'equity': 'stock_market',
@@ -90,52 +101,63 @@ Category number:"""
                 'oil': 'oil_and_gas',
                 'gas': 'oil_and_gas',
                 'energy': 'oil_and_gas',
-                'petroleum': 'oil_and_gas',
-                'crop': 'agriculture',
-                'farm': 'agriculture',
-                'grain': 'agriculture',
-                'house': 'housing',
-                'property': 'housing',
-                'real_estate': 'housing',
-                'mortgage': 'housing',
                 'bank': 'banking',
                 'loan': 'banking',
-                'credit': 'banking',
                 'crypto': 'cryptocurrency',
                 'bitcoin': 'cryptocurrency',
-                'ethereum': 'cryptocurrency',
+                'forex': 'forex',
                 'currency': 'forex',
-                'exchange_rate': 'forex',
-                'commodity': 'commodities',
-                'gold': 'commodities',
-                'metal': 'commodities'
+                'commodity': 'commodities'
             }
 
-            # Check for mapped terms
             for key, value in category_mapping.items():
                 if key in response:
                     return value
 
-            # If no match found, return OTHERS instead of stock_market
-            logger.info(f"Could not match category '{response}', categorizing as 'others'")
             return NewsCategory.OTHERS.value
 
         except Exception as e:
-            logger.warning(f"Error in category normalization: {str(e)}")
+            logger.warning(f"Category normalization error: {str(e)}")
             return NewsCategory.OTHERS.value
 
-    def _call_ollama(self, news_text: str) -> Optional[Dict[str, Any]]:
-        """Call Ollama API with improved error handling"""
+    def _normalize_sentiment(self, response: str) -> str:
+        """Normalize sentiment response"""
+        try:
+            # Extract numbers
+            import re
+            numbers = re.findall(r'\d+', response)
+            if numbers:
+                number = int(numbers[0])
+                if number == 1:
+                    return SentimentType.POSITIVE.value
+                elif number == 2:
+                    return SentimentType.NEGATIVE.value
+                else:
+                    return SentimentType.NEUTRAL.value
+
+            # Text matching fallback
+            response = response.lower().strip()
+            if any(word in response for word in ['positive', 'growth', 'profit', 'success', 'up']):
+                return SentimentType.POSITIVE.value
+            elif any(word in response for word in ['negative', 'decline', 'loss', 'down', 'fail']):
+                return SentimentType.NEGATIVE.value
+            
+            return SentimentType.NEUTRAL.value
+
+        except Exception as e:
+            logger.warning(f"Sentiment normalization error: {str(e)}")
+            return SentimentType.NEUTRAL.value
+
+    def _call_ollama(self, prompt: str) -> Optional[Dict[str, Any]]:
+        """Call Ollama API with retry logic"""
         for attempt in range(config.MAX_RETRIES):
             try:
-                prompt = self._generate_prompt(news_text)
-                
                 payload = {
                     "model": self.model_name,
                     "prompt": prompt,
                     "stream": False,
-                    "temperature": 0.1,  # Lower temperature for more consistent results
-                    "top_p": 0.9
+                    "temperature": config.TEMPERATURE,
+                    "top_p": config.TOP_P
                 }
                 
                 response = requests.post(
@@ -149,50 +171,66 @@ Category number:"""
             except Exception as e:
                 logger.warning(f"Attempt {attempt + 1} failed: {str(e)}")
                 if attempt == config.MAX_RETRIES - 1:
-                    logger.error(f"Failed to get response after {config.MAX_RETRIES} attempts")
+                    logger.error(f"Failed after {config.MAX_RETRIES} attempts")
                     return None
                 time.sleep(config.RETRY_DELAY * (2 ** attempt))
         
         return None
 
-    def classify_news(self, news_text: str) -> NewsClassification:
-        """Classify a piece of financial news"""
+    def analyze_news(self, news_text: str) -> NewsAnalysis:
+        """Analyze news for category and sentiment"""
         start_time = time.time()
         try:
-            # Preprocess the news text
+            # Preprocess the text
             news_text = news_text.strip()
             if not news_text:
-                return NewsClassification(
+                return NewsAnalysis(
                     category=NewsCategory.OTHERS.value,
+                    sentiment=SentimentType.NEUTRAL.value,
                     success=False,
                     raw_response="Empty text",
                     processing_time=0.0
                 )
 
-            response = self._call_ollama(news_text)
-            if response:
-                raw_response = response.get('response', '').strip()
-                category = self._normalize_category(raw_response)
+            # Get category
+            category_prompt = self._generate_classification_prompt(news_text)
+            category_response = self._call_ollama(category_prompt)
+            
+            # Get sentiment
+            sentiment_prompt = self._generate_sentiment_prompt(news_text)
+            sentiment_response = self._call_ollama(sentiment_prompt)
+
+            if category_response and sentiment_response:
+                category_raw = category_response.get('response', '').strip()
+                sentiment_raw = sentiment_response.get('response', '').strip()
+                
+                category = self._normalize_category(category_raw)
+                sentiment = self._normalize_sentiment(sentiment_raw)
+                
+                raw_response = f"Category: {category_raw}, Sentiment: {sentiment_raw}"
                 success = True
             else:
                 category = NewsCategory.OTHERS.value
+                sentiment = SentimentType.NEUTRAL.value
                 raw_response = None
                 success = False
 
             processing_time = time.time() - start_time
             
-            return NewsClassification(
+            return NewsAnalysis(
                 category=category,
+                sentiment=sentiment,
                 success=success,
                 raw_response=raw_response,
                 processing_time=processing_time
             )
             
         except Exception as e:
-            logger.error(f"Classification failed: {str(e)}")
             processing_time = time.time() - start_time
-            return NewsClassification(
+            logger.error(f"Analysis failed: {str(e)}")
+            return NewsAnalysis(
                 category=NewsCategory.OTHERS.value,
+                sentiment=SentimentType.NEUTRAL.value,
                 success=False,
                 raw_response=str(e),
                 processing_time=processing_time
