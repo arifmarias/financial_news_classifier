@@ -25,3 +25,4 @@ class NewsAnalysis(BaseModel):
     success: bool
     raw_response: Optional[str] = None
     processing_time: Optional[float] = None
+    confidence_score: Optional[float] = None  # Added for Llama2's confidence tracking

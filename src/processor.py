@@ -32,6 +32,7 @@ class NewsProcessor:
             processed_df = df.copy()
             processed_df['Category'] = None
             processed_df['Sentiment'] = None
+            processed_df['Confidence'] = None
             
             total_rows = len(processed_df)
             logger.info(f"Starting to process {total_rows} articles")
@@ -43,18 +44,21 @@ class NewsProcessor:
                         logger.warning(f"Empty article at index {idx}")
                         processed_df.at[idx, 'Category'] = 'UNKNOWN'
                         processed_df.at[idx, 'Sentiment'] = 'NEUTRAL'
+                        processed_df.at[idx, 'Confidence'] = 0.0
                         continue
                         
                     result = self.classifier.analyze_news(str(article))
                     processed_df.at[idx, 'Category'] = result.category
                     processed_df.at[idx, 'Sentiment'] = result.sentiment
+                    processed_df.at[idx, 'Confidence'] = result.confidence_score
                     
-                    time.sleep(0.5)  # Rate limiting
+                    time.sleep(1.0)  # Rate limiting for Llama2
                     
                 except Exception as e:
                     logger.error(f"Error processing article at index {idx}: {str(e)}")
                     processed_df.at[idx, 'Category'] = 'ERROR'
                     processed_df.at[idx, 'Sentiment'] = 'NEUTRAL'
+                    processed_df.at[idx, 'Confidence'] = 0.0
             
             return processed_df
             
@@ -108,12 +112,21 @@ class NewsProcessor:
                 'Success rate': f"{(categorized/total_articles)*100:.2f}%"
             }
             
-            # Category and sentiment distributions
+            # Confidence statistics
+            if 'Confidence' in df.columns:
+                confidence_stats = {
+                    'Average Confidence': f"{df['Confidence'].mean():.2f}",
+                    'High Confidence (>0.8)': (df['Confidence'] > 0.8).sum(),
+                    'Low Confidence (<0.5)': (df['Confidence'] < 0.5).sum()
+                }
+                stats.update(confidence_stats)
+            
+            # Category distribution
             category_dist = df['Category'].value_counts().to_dict()
             sentiment_dist = df['Sentiment'].value_counts().to_dict()
             
             # Log basic statistics
-            logger.info("Processing Statistics:")
+            logger.info("\nProcessing Statistics:")
             for key, value in stats.items():
                 logger.info(f"{key}: {value}")
             
@@ -129,7 +142,7 @@ class NewsProcessor:
                 percentage = (count/total_articles)*100
                 logger.info(f"{sentiment}: {count} ({percentage:.2f}%)")
             
-            # Log combined statistics
+            # Log category-sentiment combinations
             logger.info("\nCategory-Sentiment Distribution:")
             for category in df['Category'].unique():
                 category_data = df[df['Category'] == category]

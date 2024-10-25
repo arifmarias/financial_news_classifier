@@ -1,8 +1,9 @@
 # classifier.py
 import logging
 import time
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Tuple
 import requests
+import json
 
 from .config import config
 from .models import NewsCategory, SentimentType, NewsAnalysis
@@ -31,122 +32,137 @@ class FinancialNewsClassifier:
             logger.info("Successfully connected to Ollama")
         except Exception as e:
             raise OllamaConnectionError(
-                "Could not connect to Ollama. Please ensure Ollama is running. "
+                "Could not connect to Ollama. Ensure Llama2 is installed with 'ollama pull llama2'. "
                 f"Error: {str(e)}"
             )
 
     def _generate_classification_prompt(self, text: str) -> str:
-        """Generate a prompt for category classification"""
+        """Generate a prompt for category classification using Llama2's format"""
         categories = [
             f"{i+1}. {cat.value}" 
             for i, cat in enumerate(NewsCategory)
         ]
         categories_list = "\n".join(categories)
         
-        return f"""Classify this financial news article into ONE of these categories:
+        return f"""<s>[INST] You are a financial news classifier. Analyze this article and classify it into exactly ONE category.
 
+Available categories:
 {categories_list}
 
 Rules:
-1. Choose ONLY ONE category number
-2. If the article doesn't clearly fit into specific categories 1-8, choose 9 (others)
-3. Respond ONLY with the category number (1-9)
-4. Don't explain your choice, just provide the number
+1. Read the article carefully and consider the main topic
+2. Choose the MOST relevant category
+3. Provide your response in JSON format:
+   {{"category_number": X, "confidence": Y}}
+   where X is the category number (1-9) and Y is your confidence (0-1)
 
 Article:
 {text}
 
-Category number:"""
+Classify this article: [/INST]</s>"""
 
     def _generate_sentiment_prompt(self, text: str) -> str:
-        """Generate a prompt for sentiment analysis"""
-        return f"""Analyze the sentiment of this financial news article. Choose ONE:
+        """Generate a prompt for sentiment analysis using Llama2's format"""
+        return f"""<s>[INST] You are a financial sentiment analyzer. Analyze the sentiment of this article.
+
+Options:
 1. positive (indicates growth, profit, success, or positive market outlook)
 2. negative (indicates decline, loss, failure, or negative market outlook)
 3. neutral (balanced or purely factual information)
 
 Rules:
 1. Consider the overall financial impact and market implications
-2. Respond ONLY with the number (1-3)
-3. Don't explain your choice
+2. Analyze the tone and factual content
+3. Provide your response in JSON format:
+   {{"sentiment_number": X, "confidence": Y}}
+   where X is the sentiment number (1-3) and Y is your confidence (0-1)
 
 Article:
 {text}
 
-Sentiment number:"""
+Analyze the sentiment: [/INST]</s>"""
 
-    def _normalize_category(self, response: str) -> str:
-        """Normalize category response"""
+    def _parse_json_response(self, response: str) -> Dict[str, Any]:
+        """Parse JSON response with fallback"""
         try:
-            # First try to extract numbers
+            # Find JSON-like content in the response
             import re
-            numbers = re.findall(r'\d+', response)
-            if numbers:
-                number = int(numbers[0])
+            json_pattern = r'\{[^{}]*\}'
+            matches = re.findall(json_pattern, response)
+            if matches:
+                return json.loads(matches[0])
+        except Exception as e:
+            logger.warning(f"JSON parsing failed: {str(e)}")
+        return {}
+
+    def _normalize_category(self, response: str) -> Tuple[str, float]:
+        """Normalize category response and extract confidence"""
+        try:
+            # Parse JSON response
+            result = self._parse_json_response(response)
+            category_num = result.get('category_number')
+            confidence = float(result.get('confidence', 0))
+            
+            # Number-based category selection
+            if category_num:
                 categories = list(NewsCategory)
-                if 1 <= number <= len(categories):
-                    return categories[number-1].value
+                if 1 <= category_num <= len(categories):
+                    return categories[category_num-1].value, confidence
 
-            # Text-based matching fallback
+            # Fallback to text analysis
             response = response.lower().strip()
-            response = ''.join(c for c in response if c.isalnum() or c in ['_', ' '])
-            response = response.replace(' ', '_')
-
-            # Category mapping
             category_mapping = {
-                'stock': 'stock_market',
-                'equity': 'stock_market',
-                'shares': 'stock_market',
-                'market': 'stock_market',
-                'oil': 'oil_and_gas',
-                'gas': 'oil_and_gas',
-                'energy': 'oil_and_gas',
-                'bank': 'banking',
-                'loan': 'banking',
-                'crypto': 'cryptocurrency',
-                'bitcoin': 'cryptocurrency',
-                'forex': 'forex',
-                'currency': 'forex',
-                'commodity': 'commodities'
+                'stock': ('stock_market', 0.8),
+                'equity': ('stock_market', 0.8),
+                'oil': ('oil_and_gas', 0.8),
+                'gas': ('oil_and_gas', 0.8),
+                'bank': ('banking', 0.8),
+                'crypto': ('cryptocurrency', 0.8),
+                'forex': ('forex', 0.8),
+                'commodity': ('commodities', 0.8),
+                'agriculture': ('agriculture', 0.8),
+                'housing': ('housing', 0.8)
             }
 
-            for key, value in category_mapping.items():
+            for key, (category, conf) in category_mapping.items():
                 if key in response:
-                    return value
+                    return category, conf
 
-            return NewsCategory.OTHERS.value
+            return NewsCategory.OTHERS.value, 0.5
 
         except Exception as e:
             logger.warning(f"Category normalization error: {str(e)}")
-            return NewsCategory.OTHERS.value
+            return NewsCategory.OTHERS.value, 0.0
 
-    def _normalize_sentiment(self, response: str) -> str:
-        """Normalize sentiment response"""
+    def _normalize_sentiment(self, response: str) -> Tuple[str, float]:
+        """Normalize sentiment response and extract confidence"""
         try:
-            # Extract numbers
-            import re
-            numbers = re.findall(r'\d+', response)
-            if numbers:
-                number = int(numbers[0])
-                if number == 1:
-                    return SentimentType.POSITIVE.value
-                elif number == 2:
-                    return SentimentType.NEGATIVE.value
-                else:
-                    return SentimentType.NEUTRAL.value
-
-            # Text matching fallback
-            response = response.lower().strip()
-            if any(word in response for word in ['positive', 'growth', 'profit', 'success', 'up']):
-                return SentimentType.POSITIVE.value
-            elif any(word in response for word in ['negative', 'decline', 'loss', 'down', 'fail']):
-                return SentimentType.NEGATIVE.value
+            # Parse JSON response
+            result = self._parse_json_response(response)
+            sentiment_num = result.get('sentiment_number')
+            confidence = float(result.get('confidence', 0))
             
-            return SentimentType.NEUTRAL.value
+            # Number-based sentiment selection
+            if sentiment_num:
+                if sentiment_num == 1:
+                    return SentimentType.POSITIVE.value, confidence
+                elif sentiment_num == 2:
+                    return SentimentType.NEGATIVE.value, confidence
+                else:
+                    return SentimentType.NEUTRAL.value, confidence
+
+            # Fallback to text analysis
+            response = response.lower().strip()
+            if any(word in response for word in ['positive', 'growth', 'profit', 'success']):
+                return SentimentType.POSITIVE.value, 0.8
+            elif any(word in response for word in ['negative', 'decline', 'loss', 'fail']):
+                return SentimentType.NEGATIVE.value, 0.8
+            
+            return SentimentType.NEUTRAL.value, 0.6
 
         except Exception as e:
             logger.warning(f"Sentiment normalization error: {str(e)}")
-            return SentimentType.NEUTRAL.value
+            return SentimentType.NEUTRAL.value, 0.0
 
     def _call_ollama(self, prompt: str) -> Optional[Dict[str, Any]]:
         """Call Ollama API with retry logic"""
@@ -157,7 +173,8 @@ Sentiment number:"""
                     "prompt": prompt,
                     "stream": False,
                     "temperature": config.TEMPERATURE,
-                    "top_p": config.TOP_P
+                    "top_p": config.TOP_P,
+                    "max_tokens": config.MAX_TOKENS
                 }
                 
                 response = requests.post(
@@ -189,7 +206,8 @@ Sentiment number:"""
                     sentiment=SentimentType.NEUTRAL.value,
                     success=False,
                     raw_response="Empty text",
-                    processing_time=0.0
+                    processing_time=0.0,
+                    confidence_score=0.0
                 )
 
             # Get category
@@ -204,14 +222,19 @@ Sentiment number:"""
                 category_raw = category_response.get('response', '').strip()
                 sentiment_raw = sentiment_response.get('response', '').strip()
                 
-                category = self._normalize_category(category_raw)
-                sentiment = self._normalize_sentiment(sentiment_raw)
+                category, cat_confidence = self._normalize_category(category_raw)
+                sentiment, sent_confidence = self._normalize_sentiment(sentiment_raw)
                 
-                raw_response = f"Category: {category_raw}, Sentiment: {sentiment_raw}"
-                success = True
+                # Average confidence score
+                confidence_score = (cat_confidence + sent_confidence) / 2
+                
+                raw_response = (f"Category: {category_raw}, Confidence: {cat_confidence:.2f}\n"
+                              f"Sentiment: {sentiment_raw}, Confidence: {sent_confidence:.2f}")
+                success = confidence_score >= config.CONFIDENCE_THRESHOLD
             else:
                 category = NewsCategory.OTHERS.value
                 sentiment = SentimentType.NEUTRAL.value
+                confidence_score = 0.0
                 raw_response = None
                 success = False
 
@@ -222,7 +245,8 @@ Sentiment number:"""
                 sentiment=sentiment,
                 success=success,
                 raw_response=raw_response,
-                processing_time=processing_time
+                processing_time=processing_time,
+                confidence_score=confidence_score
             )
             
         except Exception as e:
@@ -233,5 +257,6 @@ Sentiment number:"""
                 sentiment=SentimentType.NEUTRAL.value,
                 success=False,
                 raw_response=str(e),
-                processing_time=processing_time
+                processing_time=processing_time,
+                confidence_score=0.0
             )

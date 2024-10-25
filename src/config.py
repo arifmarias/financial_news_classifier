@@ -6,17 +6,21 @@ from datetime import datetime
 class Config(BaseModel):
     # Ollama settings
     OLLAMA_URL: str = "http://localhost:11434/api/generate"
-    MODEL_NAME: str = "tinyllama"
+    MODEL_NAME: str = "llama2"  # Changed to llama2
     
     # API settings
-    REQUEST_TIMEOUT: int = 30
+    REQUEST_TIMEOUT: int = 60  # Increased for larger model
     MAX_RETRIES: int = 3
     RETRY_DELAY: int = 2
     
     # Processing settings
     BATCH_SIZE: int = 10
-    TEMPERATURE: float = 0.1
+    TEMPERATURE: float = 0.1  # Keep low for consistent results
     TOP_P: float = 0.9
+    MAX_TOKENS: int = 2048  # Added for Llama2
+    
+    # Model specific settings
+    CONFIDENCE_THRESHOLD: float = 0.7  # Minimum confidence score
     
     # CSV settings
     CSV_INPUT_COLUMNS: list = ["Headline", "Date", "Article"]
