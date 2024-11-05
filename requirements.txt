@@ -1,5 +1,12 @@
-pydantic>=2.5.0
-requests>=2.31.0
-pandas>=2.0.0
-tqdm>=4.66.0
-pytest>=7.4.0
+# Core dependencies
+pandas
+pydantic
+requests
+tqdm
+python-dotenv
+
+# Logging and utilities
+pathlib
+
+# Type hints
+typing-extensions

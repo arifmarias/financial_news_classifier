@@ -1,364 +1,227 @@
-# Financial News Classifier
+# Financial News Classifier with Llama2
 
-A Python project that uses Ollama with the TinyLlama model to classify financial news articles into predefined categories. The system processes news articles from CSV files and classifies them into categories like oil and gas, agriculture, banking, cryptocurrency, etc.
-
-[X] Author: Mohammed Arif
+A comprehensive Python application that uses the Llama2 model through Ollama to classify financial news articles and perform sentiment analysis.
 
 ## Table of Contents
-1. [Requirements](#requirements)
-2. [Setup](#setup)
-3. [Project Structure](#project-structure)
-4. [Detailed Implementation](#detailed-implementation)
-   - [models.py](#modelspy---data-structures)
-   - [config.py](#configpy---configuration-management)
-   - [classifier.py](#classifierpy---core-classification-logic)
-   - [processor.py](#processorpy---batch-processing)
+1. [Overview](#overview)
+2. [Project Structure](#project-structure)
+3. [Installation](#installation)
+4. [Detailed Component Explanation](#detailed-component-explanation)
 5. [Usage](#usage)
-6. [Error Handling](#error-handling)
-7. [Best Practices](#best-practices)
-8. [Contributing](#contributing)
-9. [License](#license)
+6. [Flow of Execution](#flow-of-execution)
+7. [Customization](#customization)
+8. [Troubleshooting](#troubleshooting)
 
-## Requirements
+## Overview
 
-- Python 3.8+
-- Ollama installed and running
-- TinyLlama model pulled in Ollama
-- Required Python packages:
-  ```
-  pandas>=1.3.0
-  pydantic>=2.0.0
-  requests>=2.25.0
-  tqdm>=4.65.0
-  python-dotenv>=0.19.0
-  ```
+This project classifies financial news articles into predefined categories and analyzes their sentiment using the Llama2 language model. It processes CSV files containing news articles and generates detailed analysis with confidence scores.
 
-## Setup
-
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/yourusername/financial-news-classifier.git
-   cd financial-news-classifier
-   ```
-
-2. Create a virtual environment:
-   ```bash
-   python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
-   ```
-
-3. Install requirements:
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-4. Start Ollama server:
-   ```bash
-   ollama serve
-   ```
-
-5. Pull the TinyLlama model:
-   ```bash
-   ollama pull tinyllama
-   ```
-
-6. Create necessary directories:
-   ```bash
-   mkdir -p data logs
-   ```
+### Key Features
+- Categorizes news articles into 9 financial sectors
+- Performs sentiment analysis (positive/negative/neutral)
+- Provides confidence scores for predictions
+- Generates detailed statistics and logs
+- Handles batch processing with progress tracking
 
 ## Project Structure
 
 ```
 financial_news_classifier/
-├── data/                  # Directory for input/output CSV files
-│   ├── news_articles.csv  # Input news articles
-│   └── processed_*.csv    # Processed output files
-├── logs/                  # Log files directory
-├── tests/                 # Test files
-├── requirements.txt       # Project dependencies
-└── src/
-    ├── __init__.py
-    ├── config.py         # Configuration settings
-    ├── models.py         # Data models and enums
-    ├── classifier.py     # Core classification logic
-    └── processor.py      # CSV processing logic
+├── src/
+│   ├── __init__.py
+│   ├── models.py        # Data models and enums
+│   ├── config.py        # Configuration settings
+│   ├── classifier.py    # Core classification logic
+│   └── processor.py     # CSV processing logic
+├── data/                # Input/output CSV files
+├── logs/               # Log files
+├── requirements.txt
+├── README.md
+└── main.py            # Entry point
 ```
 
-## Detailed Implementation
+## Installation
 
-### models.py - Data Structures
+1. Create and activate virtual environment:
+```bash
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+```
 
+2. Install Ollama:
+- Visit [Ollama's website](https://ollama.ai) for installation
+- Or use command line: `curl https://ollama.ai/install.sh | sh`
+
+3. Install Llama2 model:
+```bash
+ollama pull llama2
+```
+
+4. Install Python dependencies:
+```bash
+pip install -r requirements.txt
+```
+
+## Detailed Component Explanation
+
+### 1. models.py
 Defines the core data structures using Pydantic and Enums.
 
-```python
-class NewsCategory(str, Enum):
-    OIL_AND_GAS = "oil_and_gas"
-    AGRICULTURE = "agriculture"
-    HOUSING = "housing"
-    BANKING = "banking"
-    STOCK_MARKET = "stock_market"
-    CRYPTOCURRENCY = "cryptocurrency"
-    FOREX = "forex"
-    COMMODITIES = "commodities"
-    OTHERS = "others"
+Key Components:
+- `NewsCategory`: Enum for financial sectors
+  - oil_and_gas, agriculture, housing, etc.
+- `SentimentType`: Enum for sentiment values
+  - positive, negative, neutral
+- `NewsAnalysis`: Pydantic model for results
+  - Includes category, sentiment, confidence scores
 
-class NewsClassification(BaseModel):
-    category: NewsCategory
-    success: bool
-    raw_response: Optional[str] = None
-    processing_time: Optional[float] = None
-```
+### 2. config.py
+Manages all configuration settings using Pydantic.
 
-Key Features:
-- String-based enumeration for categories
-- Pydantic model for validation
-- Optional fields for metadata
-- Type safety and validation
+Key Settings:
+- Ollama API configuration
+  - URL, model name, timeout settings
+- Processing parameters
+  - Batch size, temperature, confidence threshold
+- File paths and CSV settings
 
-### config.py - Configuration Management
+### 3. classifier.py
+Core classification logic using Llama2.
 
-Centralized configuration using Pydantic BaseModel.
+Key Functions:
+1. `_verify_ollama_connection()`
+   - Checks if Ollama is running
+   - Validates API accessibility
 
-```python
-class Config(BaseModel):
-    # Ollama settings
-    OLLAMA_URL: str = "http://localhost:11434/api/generate"
-    MODEL_NAME: str = "tinyllama"
-    
-    # API settings
-    REQUEST_TIMEOUT: int = 30
-    MAX_RETRIES: int = 3
-    RETRY_DELAY: int = 2
-    
-    # Processing settings
-    BATCH_SIZE: int = 10
-    TEMPERATURE: float = 0.1
-    TOP_P: float = 0.9
-    
-    # CSV settings
-    CSV_INPUT_COLUMNS: list = ["Headline", "Date", "Article"]
-    CSV_DATE_FORMAT: str = "%Y-%m-%d"
-    
-    # Paths
-    BASE_DIR: Path = Path(__file__).parent.parent
-    DATA_DIR: Path = BASE_DIR / "data"
-    LOG_DIR: Path = BASE_DIR / "logs"
-```
+2. `_generate_classification_prompt()`
+   - Creates structured prompts for category classification
+   - Uses Llama2's instruction format
 
-Features:
-- Environment variable support
-- Type validation
-- Automatic directory creation
-- Configurable API parameters
+3. `_generate_sentiment_prompt()`
+   - Creates prompts for sentiment analysis
+   - Includes clear guidelines for model
 
-### classifier.py - Core Classification Logic
+4. `_normalize_category()` and `_normalize_sentiment()`
+   - Process model responses
+   - Extract categories and confidence scores
+   - Include fallback mechanisms
 
-Handles interaction with Ollama API and text classification.
+5. `analyze_news()`
+   - Main analysis function
+   - Combines category and sentiment analysis
+   - Handles errors and timeouts
 
-#### Key Components:
+### 4. processor.py
+Handles batch processing of news articles.
 
-1. **Initialization and Connection Verification**:
-```python
-class FinancialNewsClassifier:
-    def __init__(self):
-        self.api_url = config.OLLAMA_URL
-        self.model_name = config.MODEL_NAME
-        self._verify_ollama_connection()
-```
-- Verifies Ollama availability
-- Configures API endpoint
-- Initializes connection
+Key Functions:
+1. `validate_csv()`
+   - Checks required columns
+   - Validates input format
 
-2. **Prompt Engineering**:
-```python
-def _generate_prompt(self, text: str) -> str:
-    """Generate structured classification prompt"""
-    categories = [f"{i+1}. {cat.value}" 
-                 for i, cat in enumerate(NewsCategory)]
-    # Returns formatted prompt with instructions
-```
-- Creates numbered category list
-- Clear classification instructions
-- Structured format for consistency
+2. `process_dataframe()`
+   - Processes articles in batches
+   - Shows progress bar
+   - Handles rate limiting
 
-3. **Category Normalization**:
-```python
-def _normalize_category(self, response: str) -> str:
-    """Normalize model response to standard category"""
-    # Multiple normalization strategies:
-    # 1. Number extraction
-    # 2. Text matching
-    # 3. Keyword mapping
-    # 4. Fallback handling
-```
+3. `process_csv_file()`
+   - Manages file I/O
+   - Coordinates processing
+   - Generates statistics
 
-4. **API Interaction**:
-```python
-def _call_ollama(self, news_text: str) -> Optional[Dict[str, Any]]:
-    """Call Ollama API with retry logic"""
-    # Implements retry mechanism
-    # Handles timeouts and errors
-    # Returns processed response
-```
+4. `_log_statistics()`
+   - Calculates success rates
+   - Generates distribution reports
+   - Logs detailed metrics
 
-5. **Classification Pipeline**:
-```python
-def classify_news(self, news_text: str) -> NewsClassification:
-    """Classify a financial news article"""
-    # 1. Input validation
-    # 2. API call
-    # 3. Response processing
-    # 4. Result formatting
-```
+## Flow of Execution
 
-Features:
-- Robust error handling
-- Retry mechanisms
-- Response validation
-- Performance tracking
+1. **Initialization**:
+   - `main.py` creates directories
+   - Sets up logging
+   - Initializes processor
 
-### processor.py - Batch Processing
+2. **Data Loading**:
+   - Reads input CSV
+   - Validates structure
+   - Creates processing pipeline
 
-Handles batch processing of news articles with progress tracking.
+3. **Processing**:
+   - For each article:
+     1. Category classification
+     2. Sentiment analysis
+     3. Confidence calculation
+     4. Result storage
 
-#### Key Components:
-
-1. **CSV Validation**:
-```python
-def validate_csv(self, df: pd.DataFrame) -> bool:
-    """Validate CSV structure"""
-    required_columns = set(config.CSV_INPUT_COLUMNS)
-    current_columns = set(df.columns)
-    return required_columns.issubset(current_columns)
-```
-
-2. **DataFrame Processing**:
-```python
-def process_dataframe(self, df: pd.DataFrame) -> pd.DataFrame:
-    """Process articles in DataFrame"""
-    # Progress tracking
-    # Article processing
-    # Error handling
-    # Rate limiting
-```
-
-3. **File Processing**:
-```python
-def process_csv_file(self, input_file: Optional[Path] = None,
-                    output_file: Optional[Path] = None) -> bool:
-    """Process CSV file with news articles"""
-    # File handling
-    # CSV validation
-    # Article processing
-    # Results saving
-```
-
-4. **Statistics Generation**:
-```python
-def _log_statistics(self, df: pd.DataFrame):
-    """Generate processing statistics"""
-    # Success rates
-    # Category distribution
-    # Error analysis
-```
-
-Features:
-- Progress tracking with tqdm
-- Comprehensive error handling
-- Statistical analysis
-- Rate limiting
-- Detailed logging
+4. **Output**:
+   - Saves processed data
+   - Generates statistics
+   - Creates detailed logs
 
 ## Usage
 
-1. Basic usage:
-```python
-from src.processor import NewsProcessor
+1. Prepare input CSV with columns:
+   - Headline
+   - Date
+   - Article
 
-# Initialize processor
-processor = NewsProcessor()
-
-# Process CSV file
-success = processor.process_csv_file()
+2. Run the classifier:
+```bash
+python main.py
 ```
 
-2. Custom file paths:
-```python
-from pathlib import Path
+3. Check outputs in:
+   - `data/` for processed CSV
+   - `logs/` for processing logs
 
-input_path = Path("data/custom_input.csv")
-output_path = Path("data/custom_output.csv")
+## Customization
 
-processor.process_csv_file(input_path, output_path)
-```
+1. Modify Categories:
+   - Edit `NewsCategory` in models.py
+   - Update prompts in classifier.py
 
-3. Monitor progress:
-```python
-# Processing will show a progress bar:
-Processing articles: 100%|██████████| 1000/1000 [00:30<00:00, 33.33 articles/s]
-```
+2. Adjust Parameters:
+   - Edit config.py for:
+     - Model parameters
+     - Processing settings
+     - Confidence thresholds
 
-## Error Handling
+3. Custom Processing:
+   - Modify processor.py for:
+     - Different input formats
+     - Additional analytics
+     - Custom statistics
 
-1. **API Connection**:
-   - Connection timeouts
-   - Service unavailability
-   - Response validation
-   - Retry mechanisms
+## Troubleshooting
 
-2. **Data Processing**:
-   - Invalid CSV format
-   - Missing columns
-   - Malformed articles
-   - Category parsing errors
+1. Import Errors:
+   - Verify project structure
+   - Check virtual environment
+   - Confirm __init__.py exists
 
-3. **Resource Management**:
-   - Memory monitoring
-   - Processing timeouts
-   - Rate limiting
+2. Ollama Issues:
+   - Verify Ollama is running
+   - Check model installation
+   - Confirm API accessibility
 
-## Best Practices
+3. Processing Errors:
+   - Check CSV format
+   - Verify column names
+   - Monitor memory usage
 
-1. **Logging**:
-   - Structured logging
-   - Error tracking
-   - Performance monitoring
-   - Statistics collection
+## Common Issues and Solutions
 
-2. **Configuration**:
-   - Environment variables
-   - Type validation
-   - Centralized settings
-   - Documentation
+1. "ImportError":
+   - Run from project root
+   - Check file structure
+   - Verify imports
 
-3. **Error Recovery**:
-   - Automatic retries
-   - Progress preservation
-   - Detailed error reporting
-   - Fallback mechanisms
+2. "OllamaConnectionError":
+   - Start Ollama service
+   - Check API URL
+   - Verify model installation
 
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch:
-   ```bash
-   git checkout -b feature/your-feature-name
-   ```
-3. Commit your changes:
-   ```bash
-   git commit -m "Add your feature description"
-   ```
-4. Push to the branch:
-   ```bash
-   git push origin feature/your-feature-name
-   ```
-5. Create a Pull Request
-
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
-
----
-
-For more information or support, please open an issue in the GitHub repository.
+3. "CSV Validation Error":
+   - Check column names
+   - Verify data format
+   - Confirm file encoding
