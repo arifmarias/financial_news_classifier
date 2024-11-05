@@ -6,7 +6,7 @@ from typing import List, Dict, Optional
 from pathlib import Path
 from tqdm import tqdm
 
-from .classifier import FinancialNewsClassifier
+from .news_analyzer import NewsAnalyzer
 from .models import NewsAnalysis
 from .config import config
 
@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 class NewsProcessor:
     def __init__(self):
-        self.classifier = FinancialNewsClassifier()
+        self.analyzer = NewsAnalyzer()
 
     def validate_csv(self, df: pd.DataFrame) -> bool:
         """Validate if CSV has required columns"""
@@ -32,7 +32,8 @@ class NewsProcessor:
             processed_df = df.copy()
             processed_df['Category'] = None
             processed_df['Sentiment'] = None
-            processed_df['Confidence'] = None
+            processed_df['Category_Confidence'] = None
+            processed_df['Sentiment_Confidence'] = None
             
             total_rows = len(processed_df)
             logger.info(f"Starting to process {total_rows} articles")
@@ -44,21 +45,24 @@ class NewsProcessor:
                         logger.warning(f"Empty article at index {idx}")
                         processed_df.at[idx, 'Category'] = 'UNKNOWN'
                         processed_df.at[idx, 'Sentiment'] = 'NEUTRAL'
-                        processed_df.at[idx, 'Confidence'] = 0.0
+                        processed_df.at[idx, 'Category_Confidence'] = 0.0
+                        processed_df.at[idx, 'Sentiment_Confidence'] = 0.0
                         continue
                         
-                    result = self.classifier.analyze_news(str(article))
+                    result = self.analyzer.analyze_news(str(article))
                     processed_df.at[idx, 'Category'] = result.category
                     processed_df.at[idx, 'Sentiment'] = result.sentiment
-                    processed_df.at[idx, 'Confidence'] = result.confidence_score
+                    processed_df.at[idx, 'Category_Confidence'] = result.confidence_score
+                    processed_df.at[idx, 'Sentiment_Confidence'] = result.sentiment_confidence
                     
-                    time.sleep(1.0)  # Rate limiting for Llama2
+                    time.sleep(1.0)  # Rate limiting
                     
                 except Exception as e:
                     logger.error(f"Error processing article at index {idx}: {str(e)}")
                     processed_df.at[idx, 'Category'] = 'ERROR'
                     processed_df.at[idx, 'Sentiment'] = 'NEUTRAL'
-                    processed_df.at[idx, 'Confidence'] = 0.0
+                    processed_df.at[idx, 'Category_Confidence'] = 0.0
+                    processed_df.at[idx, 'Sentiment_Confidence'] = 0.0
             
             return processed_df
             
@@ -103,7 +107,6 @@ class NewsProcessor:
             unknown = (df['Category'] == 'UNKNOWN').sum()
             errors = (df['Category'] == 'ERROR').sum()
             
-            # Basic statistics
             stats = {
                 'Total articles': total_articles,
                 'Successfully categorized': categorized,
@@ -112,45 +115,24 @@ class NewsProcessor:
                 'Success rate': f"{(categorized/total_articles)*100:.2f}%"
             }
             
-            # Confidence statistics
-            if 'Confidence' in df.columns:
-                confidence_stats = {
-                    'Average Confidence': f"{df['Confidence'].mean():.2f}",
-                    'High Confidence (>0.8)': (df['Confidence'] > 0.8).sum(),
-                    'Low Confidence (<0.5)': (df['Confidence'] < 0.5).sum()
-                }
-                stats.update(confidence_stats)
-            
             # Category distribution
             category_dist = df['Category'].value_counts().to_dict()
             sentiment_dist = df['Sentiment'].value_counts().to_dict()
             
-            # Log basic statistics
+            # Log statistics
             logger.info("\nProcessing Statistics:")
             for key, value in stats.items():
                 logger.info(f"{key}: {value}")
             
-            # Log category distribution
             logger.info("\nCategory Distribution:")
             for category, count in category_dist.items():
                 percentage = (count/total_articles)*100
                 logger.info(f"{category}: {count} ({percentage:.2f}%)")
-                
-            # Log sentiment distribution
+            
             logger.info("\nSentiment Distribution:")
             for sentiment, count in sentiment_dist.items():
                 percentage = (count/total_articles)*100
                 logger.info(f"{sentiment}: {count} ({percentage:.2f}%)")
             
-            # Log category-sentiment combinations
-            logger.info("\nCategory-Sentiment Distribution:")
-            for category in df['Category'].unique():
-                category_data = df[df['Category'] == category]
-                logger.info(f"\n{category}:")
-                sentiment_counts = category_data['Sentiment'].value_counts()
-                for sentiment, count in sentiment_counts.items():
-                    percentage = (count/len(category_data))*100
-                    logger.info(f"  {sentiment}: {count} ({percentage:.2f}%)")
-                
         except Exception as e:
             logger.error(f"Failed to log statistics: {str(e)}")

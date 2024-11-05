@@ -1,4 +1,4 @@
-# classifier.py
+# category_classifier.py
 import logging
 import time
 from typing import Optional, Dict, Any, Tuple
@@ -6,7 +6,7 @@ import requests
 import json
 
 from .config import config
-from .models import NewsCategory, SentimentType, NewsAnalysis
+from .models import NewsCategory
 
 logger = logging.getLogger(__name__)
 
@@ -14,12 +14,12 @@ class OllamaConnectionError(Exception):
     """Raised when there are issues connecting to Ollama"""
     pass
 
-class FinancialNewsClassifier:
+class CategoryClassifier:
     def __init__(self):
         self.api_url = config.OLLAMA_URL
         self.model_name = config.MODEL_NAME
         self._verify_ollama_connection()
-        logger.info(f"Initialized classifier with model: {self.model_name}")
+        logger.info(f"Initialized category classifier with model: {self.model_name}")
 
     def _verify_ollama_connection(self) -> None:
         """Verify that Ollama is running and accessible"""
@@ -61,31 +61,9 @@ Article:
 
 Classify this article: [/INST]</s>"""
 
-    def _generate_sentiment_prompt(self, text: str) -> str:
-        """Generate a prompt for sentiment analysis using Llama2's format"""
-        return f"""<s>[INST] You are a financial sentiment analyzer. Analyze the sentiment of this article.
-
-Options:
-1. positive (indicates growth, profit, success, or positive market outlook)
-2. negative (indicates decline, loss, failure, or negative market outlook)
-3. neutral (balanced or purely factual information)
-
-Rules:
-1. Consider the overall financial impact and market implications
-2. Analyze the tone and factual content
-3. Provide your response in JSON format:
-   {{"sentiment_number": X, "confidence": Y}}
-   where X is the sentiment number (1-3) and Y is your confidence (0-1)
-
-Article:
-{text}
-
-Analyze the sentiment: [/INST]</s>"""
-
     def _parse_json_response(self, response: str) -> Dict[str, Any]:
         """Parse JSON response with fallback"""
         try:
-            # Find JSON-like content in the response
             import re
             json_pattern = r'\{[^{}]*\}'
             matches = re.findall(json_pattern, response)
@@ -134,36 +112,6 @@ Analyze the sentiment: [/INST]</s>"""
             logger.warning(f"Category normalization error: {str(e)}")
             return NewsCategory.OTHERS.value, 0.0
 
-    def _normalize_sentiment(self, response: str) -> Tuple[str, float]:
-        """Normalize sentiment response and extract confidence"""
-        try:
-            # Parse JSON response
-            result = self._parse_json_response(response)
-            sentiment_num = result.get('sentiment_number')
-            confidence = float(result.get('confidence', 0))
-            
-            # Number-based sentiment selection
-            if sentiment_num:
-                if sentiment_num == 1:
-                    return SentimentType.POSITIVE.value, confidence
-                elif sentiment_num == 2:
-                    return SentimentType.NEGATIVE.value, confidence
-                else:
-                    return SentimentType.NEUTRAL.value, confidence
-
-            # Fallback to text analysis
-            response = response.lower().strip()
-            if any(word in response for word in ['positive', 'growth', 'profit', 'success']):
-                return SentimentType.POSITIVE.value, 0.8
-            elif any(word in response for word in ['negative', 'decline', 'loss', 'fail']):
-                return SentimentType.NEGATIVE.value, 0.8
-            
-            return SentimentType.NEUTRAL.value, 0.6
-
-        except Exception as e:
-            logger.warning(f"Sentiment normalization error: {str(e)}")
-            return SentimentType.NEUTRAL.value, 0.0
-
     def _call_ollama(self, prompt: str) -> Optional[Dict[str, Any]]:
         """Call Ollama API with retry logic"""
         for attempt in range(config.MAX_RETRIES):
@@ -194,69 +142,24 @@ Analyze the sentiment: [/INST]</s>"""
         
         return None
 
-    def analyze_news(self, news_text: str) -> NewsAnalysis:
-        """Analyze news for category and sentiment"""
-        start_time = time.time()
+    def classify(self, text: str) -> Tuple[str, float, str]:
+        """Classify text into category"""
         try:
-            # Preprocess the text
-            news_text = news_text.strip()
-            if not news_text:
-                return NewsAnalysis(
-                    category=NewsCategory.OTHERS.value,
-                    sentiment=SentimentType.NEUTRAL.value,
-                    success=False,
-                    raw_response="Empty text",
-                    processing_time=0.0,
-                    confidence_score=0.0
-                )
+            text = text.strip()
+            if not text:
+                return NewsCategory.OTHERS.value, 0.0, "Empty text"
 
             # Get category
-            category_prompt = self._generate_classification_prompt(news_text)
+            category_prompt = self._generate_classification_prompt(text)
             category_response = self._call_ollama(category_prompt)
-            
-            # Get sentiment
-            sentiment_prompt = self._generate_sentiment_prompt(news_text)
-            sentiment_response = self._call_ollama(sentiment_prompt)
 
-            if category_response and sentiment_response:
+            if category_response:
                 category_raw = category_response.get('response', '').strip()
-                sentiment_raw = sentiment_response.get('response', '').strip()
-                
-                category, cat_confidence = self._normalize_category(category_raw)
-                sentiment, sent_confidence = self._normalize_sentiment(sentiment_raw)
-                
-                # Average confidence score
-                confidence_score = (cat_confidence + sent_confidence) / 2
-                
-                raw_response = (f"Category: {category_raw}, Confidence: {cat_confidence:.2f}\n"
-                              f"Sentiment: {sentiment_raw}, Confidence: {sent_confidence:.2f}")
-                success = confidence_score >= config.CONFIDENCE_THRESHOLD
-            else:
-                category = NewsCategory.OTHERS.value
-                sentiment = SentimentType.NEUTRAL.value
-                confidence_score = 0.0
-                raw_response = None
-                success = False
+                category, confidence = self._normalize_category(category_raw)
+                return category, confidence, category_raw
+            
+            return NewsCategory.OTHERS.value, 0.0, "Failed to get response"
 
-            processing_time = time.time() - start_time
-            
-            return NewsAnalysis(
-                category=category,
-                sentiment=sentiment,
-                success=success,
-                raw_response=raw_response,
-                processing_time=processing_time,
-                confidence_score=confidence_score
-            )
-            
         except Exception as e:
-            processing_time = time.time() - start_time
-            logger.error(f"Analysis failed: {str(e)}")
-            return NewsAnalysis(
-                category=NewsCategory.OTHERS.value,
-                sentiment=SentimentType.NEUTRAL.value,
-                success=False,
-                raw_response=str(e),
-                processing_time=processing_time,
-                confidence_score=0.0
-            )
+            logger.error(f"Classification failed: {str(e)}")
+            return NewsCategory.OTHERS.value, 0.0, str(e)

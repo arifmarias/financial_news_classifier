@@ -4,23 +4,28 @@ from pydantic import BaseModel
 from datetime import datetime
 
 class Config(BaseModel):
-    # Ollama settings
+    # Ollama settings for category classification
     OLLAMA_URL: str = "http://localhost:11434/api/generate"
-    MODEL_NAME: str = "llama2"  # Changed to llama2
+    MODEL_NAME: str = "llama2"
     
     # API settings
-    REQUEST_TIMEOUT: int = 60  # Increased for larger model
+    REQUEST_TIMEOUT: int = 60
     MAX_RETRIES: int = 3
     RETRY_DELAY: int = 2
     
     # Processing settings
     BATCH_SIZE: int = 10
-    TEMPERATURE: float = 0.1  # Keep low for consistent results
+    TEMPERATURE: float = 0.1
     TOP_P: float = 0.9
-    MAX_TOKENS: int = 2048  # Added for Llama2
+    MAX_TOKENS: int = 2048
     
     # Model specific settings
-    CONFIDENCE_THRESHOLD: float = 0.7  # Minimum confidence score
+    CONFIDENCE_THRESHOLD: float = 0.7
+    
+    # FinBERT settings
+    FINBERT_MODEL_PATH: Path = Path("models/finbert/model")
+    FINBERT_TOKENIZER_PATH: Path = Path("models/finbert/tokenizer")
+    FINBERT_MAX_LENGTH: int = 512
     
     # CSV settings
     CSV_INPUT_COLUMNS: list = ["Headline", "Date", "Article"]

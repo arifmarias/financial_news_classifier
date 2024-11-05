@@ -1,227 +1,260 @@
-# Financial News Classifier with Llama2
+# Financial News Analysis System
+A comprehensive system for analyzing financial news articles using Llama2 for category classification and FinBERT for sentiment analysis.
 
-A comprehensive Python application that uses the Llama2 model through Ollama to classify financial news articles and perform sentiment analysis.
+[X] Author: Mohammed Arif
 
 ## Table of Contents
 1. [Overview](#overview)
 2. [Project Structure](#project-structure)
-3. [Installation](#installation)
-4. [Detailed Component Explanation](#detailed-component-explanation)
-5. [Usage](#usage)
-6. [Flow of Execution](#flow-of-execution)
-7. [Customization](#customization)
-8. [Troubleshooting](#troubleshooting)
+3. [Installation Guide](#installation-guide)
+4. [Detailed Component Guide](#detailed-component-guide)
+5. [Usage Guide](#usage-guide)
+6. [Training Guide](#training-guide)
+7. [Troubleshooting](#troubleshooting)
+8. [Advanced Topics](#advanced-topics)
 
 ## Overview
 
-This project classifies financial news articles into predefined categories and analyzes their sentiment using the Llama2 language model. It processes CSV files containing news articles and generates detailed analysis with confidence scores.
+### Purpose
+This system analyzes financial news articles to:
+- Classify articles into specific financial categories
+- Determine the sentiment (positive/negative/neutral)
+- Provide confidence scores for predictions
+- Generate detailed analysis reports
 
-### Key Features
-- Categorizes news articles into 9 financial sectors
-- Performs sentiment analysis (positive/negative/neutral)
-- Provides confidence scores for predictions
-- Generates detailed statistics and logs
-- Handles batch processing with progress tracking
+### Features
+- Multi-model approach using Llama2 and FinBERT
+- Batch processing capability
+- Detailed logging and statistics
+- Confidence scoring
+- Error handling and recovery
+- Progress tracking
 
 ## Project Structure
-
 ```
 financial_news_classifier/
-├── src/
+├── models/                  # Model storage directory
+│   └── finbert/            # FinBERT model files
+│       ├── model/          # Main model files
+│       │   ├── config.json
+│       │   ├── pytorch_model.bin
+│       │   ├── special_tokens_map.json
+│       │   ├── tokenizer_config.json
+│       │   └── vocab.txt
+│       └── tokenizer/      # Tokenizer files
+│           ├── special_tokens_map.json
+│           ├── tokenizer_config.json
+│           └── vocab.txt
+├── src/                    # Source code directory
 │   ├── __init__.py
-│   ├── models.py        # Data models and enums
-│   ├── config.py        # Configuration settings
-│   ├── classifier.py    # Core classification logic
-│   └── processor.py     # CSV processing logic
-├── data/                # Input/output CSV files
-├── logs/               # Log files
-├── requirements.txt
-├── README.md
-└── main.py            # Entry point
+│   ├── models.py          # Data models
+│   ├── config.py          # Configuration
+│   ├── category_classifier.py  # Llama2 classifier
+│   ├── sentiment_analyzer.py   # FinBERT analyzer
+│   ├── news_analyzer.py        # Combined analyzer
+│   └── processor.py            # Batch processor
+├── data/                   # Data directory
+│   └── news_articles.csv   # Input data
+├── logs/                   # Log files
+├── tests/                  # Test files
+├── requirements.txt        # Dependencies
+├── setup.py               # Setup script
+└── main.py                # Main script
 ```
 
-## Installation
+## Installation Guide
 
-1. Create and activate virtual environment:
+### Prerequisites
+1. Python 3.8 or higher
+2. CUDA-capable GPU (optional but recommended)
+3. 8GB RAM minimum (16GB recommended)
+4. 2GB free disk space for models
+
+### Step-by-Step Installation
+
+1. **Create Virtual Environment**
 ```bash
 python -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 ```
 
-2. Install Ollama:
-- Visit [Ollama's website](https://ollama.ai) for installation
-- Or use command line: `curl https://ollama.ai/install.sh | sh`
-
-3. Install Llama2 model:
-```bash
-ollama pull llama2
-```
-
-4. Install Python dependencies:
+2. **Install Dependencies**
 ```bash
 pip install -r requirements.txt
 ```
 
-## Detailed Component Explanation
+3. **Install Ollama**
+- Visit [Ollama's website](https://ollama.ai)
+- Follow installation instructions
+- Run: `ollama pull llama2`
 
-### 1. models.py
-Defines the core data structures using Pydantic and Enums.
+4. **Setup FinBERT**
+- Create directories:
+```bash
+mkdir -p models/finbert/{model,tokenizer}
+```
+- Download model files from Hugging Face (see Model Setup section)
 
-Key Components:
-- `NewsCategory`: Enum for financial sectors
-  - oil_and_gas, agriculture, housing, etc.
-- `SentimentType`: Enum for sentiment values
-  - positive, negative, neutral
-- `NewsAnalysis`: Pydantic model for results
-  - Includes category, sentiment, confidence scores
+## Detailed Component Guide
 
-### 2. config.py
-Manages all configuration settings using Pydantic.
+### 1. Configuration (config.py)
+**Purpose**: Centralizes all configuration settings
+```python
+# Key configurations:
+OLLAMA_URL: str = "http://localhost:11434/api/generate"  # Ollama API endpoint
+MODEL_NAME: str = "llama2"                               # Model for classification
+FINBERT_MODEL_PATH: Path = Path("models/finbert/model")  # FinBERT path
+```
+**Usage**: Controls system behavior, paths, and model parameters
 
-Key Settings:
-- Ollama API configuration
-  - URL, model name, timeout settings
-- Processing parameters
-  - Batch size, temperature, confidence threshold
-- File paths and CSV settings
+### 2. Data Models (models.py)
+**Purpose**: Defines core data structures
+```python
+class NewsCategory(str, Enum):
+    # Financial categories
+class SentimentType(str, Enum):
+    # Sentiment types
+class NewsAnalysis(BaseModel):
+    # Analysis result structure
+```
+**Usage**: Ensures type safety and data validation
 
-### 3. classifier.py
-Core classification logic using Llama2.
+### 3. Category Classifier (category_classifier.py)
+**Purpose**: Classifies articles using Llama2
+**Key Features**:
+- Connects to Ollama API
+- Generates structured prompts
+- Normalizes categories
+- Provides confidence scores
 
-Key Functions:
-1. `_verify_ollama_connection()`
-   - Checks if Ollama is running
-   - Validates API accessibility
+### 4. Sentiment Analyzer (sentiment_analyzer.py)
+**Purpose**: Analyzes sentiment using FinBERT
+**Key Features**:
+- Local model inference
+- GPU acceleration
+- Confidence scoring
+- Error handling
 
-2. `_generate_classification_prompt()`
-   - Creates structured prompts for category classification
-   - Uses Llama2's instruction format
+### 5. News Analyzer (news_analyzer.py)
+**Purpose**: Combines category and sentiment analysis
+**Key Features**:
+- Orchestrates both analyzers
+- Combines results
+- Provides unified interface
 
-3. `_generate_sentiment_prompt()`
-   - Creates prompts for sentiment analysis
-   - Includes clear guidelines for model
+### 6. Processor (processor.py)
+**Purpose**: Handles batch processing
+**Key Features**:
+- CSV validation
+- Progress tracking
+- Statistics generation
+- Error recovery
 
-4. `_normalize_category()` and `_normalize_sentiment()`
-   - Process model responses
-   - Extract categories and confidence scores
-   - Include fallback mechanisms
+## Usage Guide
 
-5. `analyze_news()`
-   - Main analysis function
-   - Combines category and sentiment analysis
-   - Handles errors and timeouts
-
-### 4. processor.py
-Handles batch processing of news articles.
-
-Key Functions:
-1. `validate_csv()`
-   - Checks required columns
-   - Validates input format
-
-2. `process_dataframe()`
-   - Processes articles in batches
-   - Shows progress bar
-   - Handles rate limiting
-
-3. `process_csv_file()`
-   - Manages file I/O
-   - Coordinates processing
-   - Generates statistics
-
-4. `_log_statistics()`
-   - Calculates success rates
-   - Generates distribution reports
-   - Logs detailed metrics
-
-## Flow of Execution
-
-1. **Initialization**:
-   - `main.py` creates directories
-   - Sets up logging
-   - Initializes processor
-
-2. **Data Loading**:
-   - Reads input CSV
-   - Validates structure
-   - Creates processing pipeline
-
-3. **Processing**:
-   - For each article:
-     1. Category classification
-     2. Sentiment analysis
-     3. Confidence calculation
-     4. Result storage
-
-4. **Output**:
-   - Saves processed data
-   - Generates statistics
-   - Creates detailed logs
-
-## Usage
-
-1. Prepare input CSV with columns:
-   - Headline
-   - Date
-   - Article
-
-2. Run the classifier:
+### Basic Usage
 ```bash
 python main.py
 ```
 
-3. Check outputs in:
-   - `data/` for processed CSV
-   - `logs/` for processing logs
+### Custom Input/Output
+```bash
+python main.py input.csv output.csv
+```
 
-## Customization
+### Sample Input CSV Format
+```csv
+Headline,Date,Article
+"Company X Reports Growth",2024-01-01,"Article text here..."
+```
 
-1. Modify Categories:
-   - Edit `NewsCategory` in models.py
-   - Update prompts in classifier.py
+## Training Guide
 
-2. Adjust Parameters:
-   - Edit config.py for:
-     - Model parameters
-     - Processing settings
-     - Confidence thresholds
+### Step 1: Understanding the Pipeline
+1. Article input
+2. Category classification (Llama2)
+3. Sentiment analysis (FinBERT)
+4. Result combination
+5. Output generation
 
-3. Custom Processing:
-   - Modify processor.py for:
-     - Different input formats
-     - Additional analytics
-     - Custom statistics
+### Step 2: Model Setup
+1. Llama2 Setup:
+```bash
+ollama pull llama2
+ollama run llama2  # Test model
+```
+
+2. FinBERT Setup:
+- Download required files
+- Place in correct directories
+- Run verification:
+```bash
+python test_setup.py
+```
+
+### Step 3: Testing Components
+1. Test category classification:
+```python
+from src.category_classifier import CategoryClassifier
+classifier = CategoryClassifier()
+result = classifier.classify("Sample article text")
+```
+
+2. Test sentiment analysis:
+```python
+from src.sentiment_analyzer import SentimentAnalyzer
+analyzer = SentimentAnalyzer()
+result = analyzer.analyze_sentiment("Sample article text")
+```
 
 ## Troubleshooting
 
-1. Import Errors:
-   - Verify project structure
-   - Check virtual environment
-   - Confirm __init__.py exists
+### Common Issues
 
-2. Ollama Issues:
-   - Verify Ollama is running
-   - Check model installation
-   - Confirm API accessibility
+1. **Ollama Connection Error**
+```
+Solution: Verify Ollama is running:
+ollama list
+```
 
-3. Processing Errors:
-   - Check CSV format
-   - Verify column names
-   - Monitor memory usage
+2. **FinBERT Loading Error**
+```
+Solution: Check model files:
+python test_setup.py
+```
 
-## Common Issues and Solutions
+3. **CUDA/GPU Issues**
+```python
+# Check GPU availability:
+import torch
+print(torch.cuda.is_available())
+```
 
-1. "ImportError":
-   - Run from project root
-   - Check file structure
-   - Verify imports
+## Advanced Topics
 
-2. "OllamaConnectionError":
-   - Start Ollama service
-   - Check API URL
-   - Verify model installation
+### 1. Custom Categories
+Modify `NewsCategory` in models.py:
+```python
+class NewsCategory(str, Enum):
+    # Add custom categories
+```
 
-3. "CSV Validation Error":
-   - Check column names
-   - Verify data format
-   - Confirm file encoding
+### 2. Performance Tuning
+Adjust in config.py:
+```python
+BATCH_SIZE: int = 10        # Processing batch size
+MAX_TOKENS: int = 2048      # Token limit
+FINBERT_MAX_LENGTH: int = 512  # Max input length
+```
+
+### 3. Custom Logging
+Modify logging configuration in main.py:
+```python
+def setup_logging():
+    # Customize logging
+```
+
+## Contributing
+1. Fork the repository
+2. Create feature branch
+3. Submit pull request

@@ -47,6 +47,7 @@ env.bak/
 
 # Project specific
 data/*
+models/*
 !data/.gitkeep
 logs/*
 !logs/.gitkeep
